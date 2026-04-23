@@ -127,6 +127,29 @@ Run these smoke tests after any of: upstream merge touching `request.ts`, Claude
 
 ---
 
+## Rejected integrations
+
+Providers we investigated and decided not to add, so future-us doesn't repeat the research.
+
+### ChatGPT Codex — rejected 2026-04-24
+
+**What we considered.** Two paths: (a) spawn the `codex` CLI as a subprocess (same pattern as Claude Code / Gemini CLI bridges), or (b) call the OpenAI `/v1/responses` endpoint directly using the OAuth access token stored in `~/.codex/auth.json`.
+
+**Why rejected.**
+
+1. **CLI subprocess path (a).** Codex is designed as a coding agent, and the agent loop can't be fully suppressed. Even with `base_instructions` overridden via a custom `CODEX_HOME/config.toml`, short prompts respond cleanly but longer/structured character context still triggers intermediate `command_execution` items and preamble agent_messages. Result: worse UX than Claude Code / Gemini CLI — noticeable latency (5–30s), higher token cost, no real token streaming (responses arrive as whole `agent_message` items), and pinned model IDs (`gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5.2`) with no Gemini-style moving aliases so new generations need manual modellist updates.
+
+2. **Direct endpoint path (b).** Darker ToS grey zone than the current CLI bridges. OpenAI's official position separates ChatGPT subscription from API access; `/v1/responses` is an API endpoint. Calling it with a ChatGPT-subscription OAuth token requires impersonating the official Codex CLI's `client_id` (`app_EMoamEEZ73f0CkXaXp7hrann`) and sending Codex-specific system-prompt signatures that OpenAI validates server-side — both fall under the ToS reverse-engineering clause. Third-party plugins doing this (OpenCode, OpenClaw) ship with "personal use only" disclaimers, and no OpenAI staff has publicly sanctioned the pattern. Anthropic's 2025–2026 enforcement wave against unofficial Claude.ai clients shows providers do act on this category.
+
+**Re-check if.**
+- Codex CLI gains a genuine chat-only mode that skips agent loops (would unblock path (a)).
+- OpenAI publishes an official third-party OAuth client registration for subscription-backed Codex access (would unblock path (b)).
+- Until then, the practical answer for OpenAI-model users is to enter an `OPENAI_API_KEY` into RisuAI's existing OpenAI provider — that path is unambiguous and needs no fork work.
+
+**Investigation artifacts.** `codex debug models` for the current catalog, `codex debug prompt-input` for the default system prompt wrapper, OpenAI ToS + community threads linked in git history (commit that added this section).
+
+---
+
 ## When something breaks after a CLI tool update
 
 1. Add a temporary `console.log('[ClaudeCode raw]', trimmed)` (or `[GeminiCLI raw]`) inside the stdout handler in the respective bridge file. Note: use `console.log`, not `console.debug` — browser DevTools filter `debug` by default.
