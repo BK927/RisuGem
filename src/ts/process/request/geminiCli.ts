@@ -41,8 +41,12 @@ export async function requestGeminiCLI(arg: RequestDataArgumentExtended): Promis
         // bare name on those systems. Probe OS and pick the right binary.
         const { platform } = await import('@tauri-apps/plugin-os')
         const binary = platform() === 'windows' ? 'gemini.cmd' : 'gemini'
+        // Moving alias (e.g. 'auto', 'pro', 'flash') from the model entry's
+        // internalID. See modellist.ts note on Gemini CLI variants.
+        const modelAlias = arg.modelInfo?.internalID
         const cliArgs = [
             '-p', userContent,
+            ...(modelAlias ? ['-m', modelAlias] : []),
             '-e', 'none',
             '--approval-mode', 'plan',
             '-o', 'stream-json',

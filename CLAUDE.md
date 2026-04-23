@@ -54,6 +54,7 @@ These are what our bridges assume about the external tools. If the tool upstream
 | No `--system-prompt` flag exists; `GEMINI.md` in cwd is the only workspace-context injection point | `geminiCli.ts` → `overrideHeader` / `writeFile('GEMINI.md', ...)` | `gemini --help` |
 | Output format `stream-json` emits `type: "message"` events with `role: "assistant"` and `delta: true` for incremental text | `geminiCli.ts` → `cmd.stdout.on('data', ...)` | Inspect raw JSONL with a temporary `console.log` |
 | `-e none --approval-mode plan` disables all tool/edit capabilities (we're chat-only) | `geminiCli.ts` → `cliArgs` | `gemini --help` |
+| Model aliases `auto`, `pro`, `flash` are moving (resolve to current generation inside the CLI); the fork relies on that auto-routing so we don't have to pin model IDs in `modellist.ts` | `geminiCli.ts` → `modelAlias` / `modellist.ts` → `gemini-cli*` entries | `gemini -m flash -p hi -o json` — response JSON should include `stats.models.<resolved-model-name>` |
 | Windows: npm-global install provides `gemini.cmd`, not `gemini.exe` | `geminiCli.ts` → platform check `'gemini.cmd' : 'gemini'` | `where.exe gemini` — should list only `.cmd` |
 
 ---

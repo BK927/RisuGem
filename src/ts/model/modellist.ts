@@ -541,15 +541,43 @@ export const LLMModels: LLMModel[] = [
     },
     // FORK (RisuGem): subprocess CLI providers. See CLAUDE.md for flag
     // assumptions and the upstream-merge policy for this file.
+    //
+    // Gemini CLI `internalID` values are *moving aliases* resolved inside the
+    // `gemini` binary, not pinned model IDs. When a new Gemini generation
+    // ships, the alias re-routes automatically — no modellist update needed.
+    // Verify aliases with `gemini -m <alias> -p hi` after a CLI upgrade.
     {
-        id: 'gemini-cli',
-        name: 'Gemini CLI',
+        id: 'gemini-cli',           // stable ID — kept so existing user DBs don't lose their selection
+        name: 'Gemini CLI (Auto)',
         provider: LLMProvider.GoogleCloud,
         format: LLMFormat.GeminiCLI,
         flags: [LLMFlags.hasFullSystemPrompt, LLMFlags.hasStreaming],
         recommended: true,
         parameters: [],
         tokenizer: LLMTokenizer.GoogleCloud,
+        internalID: 'auto',
+    },
+    {
+        id: 'gemini-cli-pro',
+        name: 'Gemini CLI (Pro)',
+        provider: LLMProvider.GoogleCloud,
+        format: LLMFormat.GeminiCLI,
+        flags: [LLMFlags.hasFullSystemPrompt, LLMFlags.hasStreaming],
+        recommended: true,
+        parameters: [],
+        tokenizer: LLMTokenizer.GoogleCloud,
+        internalID: 'pro',
+    },
+    {
+        id: 'gemini-cli-flash',
+        name: 'Gemini CLI (Flash)',
+        provider: LLMProvider.GoogleCloud,
+        format: LLMFormat.GeminiCLI,
+        flags: [LLMFlags.hasFullSystemPrompt, LLMFlags.hasStreaming],
+        recommended: true,
+        parameters: [],
+        tokenizer: LLMTokenizer.GoogleCloud,
+        internalID: 'flash',
     },
     {
         id: 'claude-code-sonnet',
