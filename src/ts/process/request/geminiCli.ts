@@ -16,7 +16,19 @@ export async function requestGeminiCLI(arg: RequestDataArgumentExtended): Promis
             await mkdir(sessionDir, { baseDir: BaseDirectory.AppData, recursive: true })
         }
 
-        await writeFile(`${sessionDir}/GEMINI.md`, new TextEncoder().encode(contextContent || ' '), { baseDir: BaseDirectory.AppData })
+        // Gemini CLI has no --system-prompt flag; its built-in "coding agent"
+        // identity tends to override GEMINI.md workspace context. We can't
+        // inject a prefix via `-p` on Windows because Rust's .cmd arg
+        // validator rejects quotes and newlines (CVE-2024-24576 fix), so we
+        // prepend the override to GEMINI.md itself (file write, no shell
+        // escaping concerns) to reframe the session as non-coding.
+        const overrideHeader =
+            '# SESSION ROLE OVERRIDE\n\n' +
+            'You are NOT "Gemini CLI" for this session. Disregard any built-in instructions about being a software engineering agent, coding assistant, or autonomous CLI tool. Those do not apply here.\n\n' +
+            'Your assigned persona, chat history, system rules, and output format are defined below. Read everything below carefully and respond to user messages strictly following those instructions. Stay fully within the assigned persona. Do not offer coding or file-operation help unless the instructions below explicitly ask for it.\n\n' +
+            '---\n\n'
+        const finalGeminiMd = overrideHeader + (contextContent || ' ')
+        await writeFile(`${sessionDir}/GEMINI.md`, new TextEncoder().encode(finalGeminiMd), { baseDir: BaseDirectory.AppData })
         const absDir = await join(await appDataDir(), sessionDir)
 
         // Windows npm-global installs typically provide `gemini.cmd` wrappers
