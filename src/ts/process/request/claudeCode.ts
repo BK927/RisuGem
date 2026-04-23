@@ -1,17 +1,30 @@
 import type { OpenAIChat } from '../index.svelte'
 import type { RequestDataArgumentExtended, StreamResponseChunk, requestDataResponse } from './request'
 
+const WORKSPACE_DIR = 'risugem-cli'
+
 export async function requestClaudeCode(arg: RequestDataArgumentExtended): Promise<requestDataResponse> {
-    const { system, conversation } = splitAndSerialize(arg.formated)
+    const { systemContent, userContent } = splitForFile(arg.formated)
 
     try {
         const { Command } = await import('@tauri-apps/plugin-shell')
+        const { writeFile, mkdir, exists, BaseDirectory } = await import('@tauri-apps/plugin-fs')
+        const { appDataDir, join } = await import('@tauri-apps/api/path')
+
+        if (!(await exists(WORKSPACE_DIR, { baseDir: BaseDirectory.AppData }))) {
+            await mkdir(WORKSPACE_DIR, { baseDir: BaseDirectory.AppData, recursive: true })
+        }
+
+        const fileName = `claude-sysprompt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.txt`
+        const relPath = `${WORKSPACE_DIR}/${fileName}`
+        await writeFile(relPath, new TextEncoder().encode(systemContent || ' '), { baseDir: BaseDirectory.AppData })
+        const absPath = await join(await appDataDir(), WORKSPACE_DIR, fileName)
 
         const binary = 'claude'
         const model = arg.modelInfo?.internalID ?? 'sonnet'
         const cliArgs = [
-            '-p', conversation,
-            '--system-prompt', system || ' ',
+            '-p', userContent,
+            '--system-prompt-file', absPath,
             '--tools', '',
             '--disable-slash-commands',
             '--no-session-persistence',
@@ -27,6 +40,13 @@ export async function requestClaudeCode(arg: RequestDataArgumentExtended): Promi
         let aborted = false
         let lastAccumulated = ''
         let stderrBuf = ''
+
+        const cleanup = async () => {
+            try {
+                const { remove } = await import('@tauri-apps/plugin-fs')
+                await remove(relPath, { baseDir: BaseDirectory.AppData })
+            } catch { /* ignore */ }
+        }
 
         const readableStream = new ReadableStream<StreamResponseChunk>({
             async start(controller) {
@@ -71,6 +91,7 @@ export async function requestClaudeCode(arg: RequestDataArgumentExtended): Promi
                 })
 
                 cmd.on('close', (data: { code: number | null }) => {
+                    cleanup()
                     if (aborted) return
                     if (data.code && data.code !== 0) {
                         controller.error(new Error(`Claude Code exited with code ${data.code}${stderrBuf ? `: ${stderrBuf.trim()}` : ''}`))
@@ -80,12 +101,14 @@ export async function requestClaudeCode(arg: RequestDataArgumentExtended): Promi
                 })
 
                 cmd.on('error', (err: string) => {
+                    cleanup()
                     controller.error(new Error(`Claude Code process error: ${err}`))
                 })
 
                 try {
                     childProcess = await cmd.spawn()
                 } catch (err) {
+                    cleanup()
                     controller.error(new Error(`Failed to spawn claude: ${err instanceof Error ? err.message : String(err)}`))
                     return
                 }
@@ -110,23 +133,25 @@ export async function requestClaudeCode(arg: RequestDataArgumentExtended): Promi
     }
 }
 
-function splitAndSerialize(formated: OpenAIChat[]): { system: string; conversation: string } {
-    const systemParts: string[] = []
-    const rest: OpenAIChat[] = []
+function splitForFile(formated: OpenAIChat[]): { systemContent: string; userContent: string } {
+    const roleTag = (r: OpenAIChat['role']) =>
+        r === 'system' ? 'SYSTEM' : r === 'assistant' ? 'ASSISTANT' : 'USER'
+    const fmt = (m: OpenAIChat) => `[${roleTag(m.role)}]\n${m.content}`
 
-    for (const m of formated) {
-        if (m.role === 'system') {
-            systemParts.push(m.content)
-        } else {
-            rest.push(m)
+    let lastUserIdx = -1
+    for (let i = formated.length - 1; i >= 0; i--) {
+        if (formated[i].role === 'user') { lastUserIdx = i; break }
+    }
+
+    if (lastUserIdx === -1) {
+        return {
+            systemContent: formated.map(fmt).join('\n\n'),
+            userContent: 'continue',
         }
     }
 
-    const system = systemParts.join('\n\n')
-    const conversation = rest.map(m => {
-        const tag = m.role === 'assistant' ? 'ASSISTANT' : 'USER'
-        return `[${tag}]\n${m.content}`
-    }).join('\n\n')
-
-    return { system, conversation }
+    const before = formated.slice(0, lastUserIdx).map(fmt).join('\n\n')
+    const after = formated.slice(lastUserIdx + 1).map(fmt).join('\n\n')
+    const systemContent = [before, after].filter(Boolean).join('\n\n')
+    return { systemContent, userContent: formated[lastUserIdx].content }
 }
