@@ -17,6 +17,7 @@ test/test.ts
 xplugin/
 src-others/
 /memo.txt
+/notes/
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

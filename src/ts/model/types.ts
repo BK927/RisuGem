@@ -71,7 +71,9 @@ export const LLMFormat = {
     NanoGPT: 20,
     NanoGPTResponses: 21,
     NanoGPTMessages: 22,
-    NanoGPTLegacy: 23
+    NanoGPTLegacy: 23,
+    GeminiCLI: 24,
+    ClaudeCodeCLI: 25
 } as const;
 export type LLMFormat = (typeof LLMFormat)[keyof typeof LLMFormat];
 

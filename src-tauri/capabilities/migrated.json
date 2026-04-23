@@ -101,6 +101,16 @@
           "name": "uvx",
           "cmd": "uvx",
           "args": true
+        },
+        {
+          "name": "gemini",
+          "cmd": "gemini",
+          "args": true
+        },
+        {
+          "name": "claude",
+          "cmd": "claude",
+          "args": true
         }
       ]
     },

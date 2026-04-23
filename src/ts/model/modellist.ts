@@ -539,6 +539,39 @@ export const LLMModels: LLMModel[] = [
         parameters: [],
         tokenizer: LLMTokenizer.Unknown
     },
+    // RisuGem — subprocess CLI providers (Gemini CLI, Claude Code)
+    {
+        id: 'gemini-cli',
+        name: 'Gemini CLI',
+        provider: LLMProvider.GoogleCloud,
+        format: LLMFormat.GeminiCLI,
+        flags: [LLMFlags.hasFullSystemPrompt, LLMFlags.hasStreaming],
+        recommended: false,
+        parameters: [],
+        tokenizer: LLMTokenizer.GoogleCloud,
+    },
+    {
+        id: 'claude-code-sonnet',
+        name: 'Claude Code (Sonnet)',
+        provider: LLMProvider.Anthropic,
+        format: LLMFormat.ClaudeCodeCLI,
+        flags: [LLMFlags.hasFullSystemPrompt, LLMFlags.hasStreaming],
+        recommended: false,
+        parameters: [],
+        tokenizer: LLMTokenizer.Claude,
+        internalID: 'sonnet',
+    },
+    {
+        id: 'claude-code-opus',
+        name: 'Claude Code (Opus)',
+        provider: LLMProvider.Anthropic,
+        format: LLMFormat.ClaudeCodeCLI,
+        flags: [LLMFlags.hasFullSystemPrompt, LLMFlags.hasStreaming],
+        recommended: false,
+        parameters: [],
+        tokenizer: LLMTokenizer.Claude,
+        internalID: 'opus',
+    },
 ]
 
 for(let model of LLMModels){

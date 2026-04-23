@@ -20,6 +20,8 @@ import { requestClaude } from './anthropic';
 import { requestGoogleCloudVertex } from './google';
 import { requestOpenAI, requestOpenAILegacyInstruct, requestOpenAIResponseAPI } from "./openAI/requests";
 import { applyParameters, type ModelModeExtended } from './shared';
+import { requestGeminiCLI } from './geminiCli';
+import { requestClaudeCode } from './claudeCode';
 
 export type ToolCall = {
     name: string;
@@ -413,6 +415,10 @@ export async function requestChatDataMain(arg:requestDataArgument, model:ModelMo
             return requestOpenAIResponseAPI(targ)
         case LLMFormat.Echo:
             return requestEcho(targ)
+        case LLMFormat.GeminiCLI:
+            return requestGeminiCLI(targ)
+        case LLMFormat.ClaudeCodeCLI:
+            return requestClaudeCode(targ)
     }
 
     return {
