@@ -123,9 +123,30 @@ export async function requestGeminiCLI(arg: RequestDataArgumentExtended): Promis
             }
         })
 
-        return {
-            type: 'streaming',
-            result: readableStream,
+        if (arg.useStreaming) {
+            return {
+                type: 'streaming',
+                result: readableStream,
+            }
+        }
+
+        // Non-streaming callers (e.g. auto-suggest) would otherwise discard
+        // our streaming result; drain the stream here and return the final
+        // cumulative text as a 'success' response so those callers work.
+        try {
+            const reader = readableStream.getReader()
+            let finalText = ''
+            while (true) {
+                const { done, value } = await reader.read()
+                if (done) break
+                if (value && typeof value["0"] === 'string') finalText = value["0"]
+            }
+            return { type: 'success', result: finalText }
+        } catch (err) {
+            return {
+                type: 'fail',
+                result: `Gemini CLI stream error: ${err instanceof Error ? err.message : String(err)}`,
+            }
         }
     } catch (err) {
         return {
