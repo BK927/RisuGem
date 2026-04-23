@@ -72,6 +72,7 @@ export const LLMFormat = {
     NanoGPTResponses: 21,
     NanoGPTMessages: 22,
     NanoGPTLegacy: 23,
+    // FORK (RisuGem): CLI-backed providers. See CLAUDE.md.
     GeminiCLI: 24,
     ClaudeCodeCLI: 25
 } as const;

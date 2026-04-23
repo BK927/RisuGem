@@ -539,7 +539,8 @@ export const LLMModels: LLMModel[] = [
         parameters: [],
         tokenizer: LLMTokenizer.Unknown
     },
-    // RisuGem — subprocess CLI providers (Gemini CLI, Claude Code)
+    // FORK (RisuGem): subprocess CLI providers. See CLAUDE.md for flag
+    // assumptions and the upstream-merge policy for this file.
     {
         id: 'gemini-cli',
         name: 'Gemini CLI',

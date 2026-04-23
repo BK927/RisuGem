@@ -415,6 +415,8 @@ export async function requestChatDataMain(arg:requestDataArgument, model:ModelMo
             return requestOpenAIResponseAPI(targ)
         case LLMFormat.Echo:
             return requestEcho(targ)
+        // FORK (RisuGem): CLI bridges. See CLAUDE.md for why these exist
+        // and what's peculiar about their streaming/useStreaming handling.
         case LLMFormat.GeminiCLI:
             return requestGeminiCLI(targ)
         case LLMFormat.ClaudeCodeCLI:

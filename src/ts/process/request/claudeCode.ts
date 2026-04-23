@@ -1,3 +1,8 @@
+// FORK (RisuGem): Claude Code CLI bridge. Not in upstream Risuai.
+// Before changing anything in this file, read CLAUDE.md in the repo root —
+// it documents the external flag assumptions, rejected alternatives, and
+// what to re-verify when the Claude Code CLI updates.
+
 import type { OpenAIChat } from '../index.svelte'
 import type { RequestDataArgumentExtended, StreamResponseChunk, requestDataResponse } from './request'
 

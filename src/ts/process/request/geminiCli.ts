@@ -1,3 +1,8 @@
+// FORK (RisuGem): Gemini CLI bridge. Not in upstream Risuai.
+// Before changing anything in this file, read CLAUDE.md in the repo root —
+// it documents the GEMINI.md override strategy, the Windows .cmd-arg
+// restrictions that shape it, and rejected alternatives.
+
 import type { OpenAIChat } from '../index.svelte'
 import type { RequestDataArgumentExtended, StreamResponseChunk, requestDataResponse } from './request'
 
