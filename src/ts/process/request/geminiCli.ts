@@ -19,7 +19,11 @@ export async function requestGeminiCLI(arg: RequestDataArgumentExtended): Promis
         await writeFile(`${sessionDir}/GEMINI.md`, new TextEncoder().encode(contextContent || ' '), { baseDir: BaseDirectory.AppData })
         const absDir = await join(await appDataDir(), sessionDir)
 
-        const binary = 'gemini'
+        // Windows npm-global installs typically provide `gemini.cmd` wrappers
+        // rather than a `gemini.exe`; Tauri's CreateProcess fails to find the
+        // bare name on those systems. Probe OS and pick the right binary.
+        const { platform } = await import('@tauri-apps/plugin-os')
+        const binary = platform() === 'windows' ? 'gemini.cmd' : 'gemini'
         const cliArgs = [
             '-p', userContent,
             '-e', 'none',
@@ -41,14 +45,24 @@ export async function requestGeminiCLI(arg: RequestDataArgumentExtended): Promis
 
         const readableStream = new ReadableStream<StreamResponseChunk>({
             async start(controller) {
+                // RisuAI expects each stream chunk to carry the full cumulative
+                // text so far, so we accumulate Gemini's delta events locally
+                // and emit the running total.
+                let accumulated = ''
+                // Buffer for incomplete JSONL lines that span stdout chunks.
+                let stdoutBuf = ''
                 cmd.stdout.on('data', (raw: string) => {
-                    for (const line of raw.split('\n')) {
+                    stdoutBuf += raw
+                    const lines = stdoutBuf.split('\n')
+                    stdoutBuf = lines.pop() ?? ''
+                    for (const line of lines) {
                         const trimmed = line.trim()
                         if (!trimmed) continue
                         try {
                             const ev = JSON.parse(trimmed)
                             if (ev.type === 'message' && ev.role === 'assistant' && ev.delta === true && typeof ev.content === 'string') {
-                                controller.enqueue({ "0": ev.content })
+                                accumulated += ev.content
+                                controller.enqueue({ "0": accumulated })
                             }
                             else if (ev.type === 'result' && ev.status && ev.status !== 'success') {
                                 controller.error(new Error(ev.error?.message ?? `Gemini CLI result status: ${ev.status}`))

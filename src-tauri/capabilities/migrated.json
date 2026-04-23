@@ -108,8 +108,18 @@
           "args": true
         },
         {
+          "name": "gemini.cmd",
+          "cmd": "gemini.cmd",
+          "args": true
+        },
+        {
           "name": "claude",
           "cmd": "claude",
+          "args": true
+        },
+        {
+          "name": "claude.cmd",
+          "cmd": "claude.cmd",
           "args": true
         }
       ]

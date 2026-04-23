@@ -15,11 +15,19 @@ export async function requestClaudeCode(arg: RequestDataArgumentExtended): Promi
             await mkdir(WORKSPACE_DIR, { baseDir: BaseDirectory.AppData, recursive: true })
         }
 
-        const fileName = `claude-sysprompt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.txt`
-        const relPath = `${WORKSPACE_DIR}/${fileName}`
+        const sessionId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+        const sessionDir = `${WORKSPACE_DIR}/claude-${sessionId}`
+        if (!(await exists(sessionDir, { baseDir: BaseDirectory.AppData }))) {
+            await mkdir(sessionDir, { baseDir: BaseDirectory.AppData, recursive: true })
+        }
+        const relPath = `${sessionDir}/sysprompt.txt`
         await writeFile(relPath, new TextEncoder().encode(systemContent || ' '), { baseDir: BaseDirectory.AppData })
-        const absPath = await join(await appDataDir(), WORKSPACE_DIR, fileName)
+        const absPath = await join(await appDataDir(), sessionDir, 'sysprompt.txt')
+        const absSessionDir = await join(await appDataDir(), sessionDir)
 
+        // Claude's installer provides `claude.exe` on Windows, which Tauri
+        // resolves from the bare `claude` name via PATHEXT. No special case
+        // needed here.
         const binary = 'claude'
         const model = arg.modelInfo?.internalID ?? 'sonnet'
         const cliArgs = [
@@ -35,7 +43,10 @@ export async function requestClaudeCode(arg: RequestDataArgumentExtended): Promi
             '--model', model,
         ]
 
-        const cmd = Command.create(binary, cliArgs)
+        // cwd isolation: prevents Claude Code auto-memory keyed on our dev
+        // project path from leaking in, and avoids CLAUDE.md discovery from
+        // parent directories.
+        const cmd = Command.create(binary, cliArgs, { cwd: absSessionDir })
         let childProcess: Awaited<ReturnType<typeof cmd.spawn>> | null = null
         let aborted = false
         let lastAccumulated = ''
@@ -44,35 +55,40 @@ export async function requestClaudeCode(arg: RequestDataArgumentExtended): Promi
         const cleanup = async () => {
             try {
                 const { remove } = await import('@tauri-apps/plugin-fs')
-                await remove(relPath, { baseDir: BaseDirectory.AppData })
+                await remove(sessionDir, { baseDir: BaseDirectory.AppData, recursive: true })
             } catch { /* ignore */ }
         }
 
         const readableStream = new ReadableStream<StreamResponseChunk>({
             async start(controller) {
+                // Buffer for incomplete JSONL lines that span stdout chunks.
+                let stdoutBuf = ''
                 cmd.stdout.on('data', (raw: string) => {
-                    for (const line of raw.split('\n')) {
+                    stdoutBuf += raw
+                    const lines = stdoutBuf.split('\n')
+                    stdoutBuf = lines.pop() ?? ''  // keep last partial line
+                    for (const line of lines) {
                         const trimmed = line.trim()
                         if (!trimmed) continue
                         try {
                             const ev = JSON.parse(trimmed)
+                            // Assistant events carry cumulative message snapshots. Only
+                            // advance if the snapshot extends what we've accumulated.
                             if (ev.type === 'assistant' && Array.isArray(ev.message?.content)) {
                                 const text = (ev.message.content as Array<{ type?: string; text?: string }>)
                                     .filter(c => c?.type === 'text' && typeof c.text === 'string')
                                     .map(c => c.text!)
                                     .join('')
-                                if (text.length > lastAccumulated.length && text.startsWith(lastAccumulated)) {
-                                    const delta = text.slice(lastAccumulated.length)
-                                    controller.enqueue({ "0": delta })
+                                if (text.length >= lastAccumulated.length && text.startsWith(lastAccumulated)) {
                                     lastAccumulated = text
-                                } else if (text && text !== lastAccumulated) {
-                                    controller.enqueue({ "0": text })
-                                    lastAccumulated = text
+                                    controller.enqueue({ "0": lastAccumulated })
                                 }
+                                // else: earlier/diverging snapshot — ignore
                             }
+                            // stream_event carries incremental text deltas.
                             else if (ev.type === 'stream_event' && ev.event?.type === 'content_block_delta' && ev.event.delta?.type === 'text_delta' && typeof ev.event.delta.text === 'string') {
-                                controller.enqueue({ "0": ev.event.delta.text })
                                 lastAccumulated += ev.event.delta.text
+                                controller.enqueue({ "0": lastAccumulated })
                             }
                             else if (ev.type === 'result' && ev.is_error) {
                                 controller.error(new Error(typeof ev.result === 'string' ? ev.result : 'Claude Code error'))
