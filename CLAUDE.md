@@ -28,7 +28,8 @@ Use `git diff --stat upstream/main..HEAD` to regenerate the authoritative list a
 - `src/ts/model/types.ts` — two new `LLMFormat` enum values
 - `src/ts/model/modellist.ts` — provider entries for both CLI tools (shown as "recommended")
 - `src-tauri/capabilities/migrated.json` — shell permission entries so Tauri can spawn `claude`, `claude.exe`, `gemini`, and `gemini.cmd`
-- `src-tauri/tauri.conf.json` — updater endpoint retargeted at `BK927/RisuGem` releases
+- `src-tauri/tauri.conf.json` — updater endpoint retargeted at `BK927/RisuGem` releases; app identity fields (`productName`, `mainBinaryName`, `identifier`, window title, deep-link scheme) changed to `RisuGem` / `com.bk927.risugem` / `risugemlocal` so we don't collide with an upstream install on the same machine; `createUpdaterArtifacts: true` so Tauri's build produces `latest.json` + `.sig` artifacts the in-app updater needs; `pubkey` replaced with our own Tauri signer public key (the matching private key lives in the repo's `TAURI_PRIVATE_KEY` secret).
+- `capacitor.config.ts` — `appId` / `appName` changed to match the new Tauri identity (only relevant if the mobile/Capacitor build path is ever revived).
 - `src/lang/zh-Hant.ts` — reset to match `en.ts` base so language-injection doesn't break on our added keys
 - `.gitignore` — one-line addition
 
@@ -109,7 +110,7 @@ Run these smoke tests after any of: upstream merge touching `request.ts`, Claude
 
 **Both**
 - Abort mid-stream (stop generation button) → no orphan child process (check Task Manager / `ps aux`).
-- Session dir cleanup: after several messages, `%APPDATA%/com.risugem.app/risugem-cli/` should not grow unbounded (bridges `rm -rf` their session dir on close).
+- Session dir cleanup: after several messages, `%APPDATA%/com.bk927.risugem/risugem-cli/` should not grow unbounded (bridges `rm -rf` their session dir on close). The `com.bk927.risugem` segment comes from `tauri.conf.json` → `identifier`; if that changes, this path changes too.
 
 ---
 

@@ -33,7 +33,7 @@ env:
   # human look, even if git merge succeeded. Keep in sync with CLAUDE.md
   # → "Fork map" → "Modified upstream files". Pipe-separated, used as a
   # single grep -E pattern.
-  SENSITIVE_FILES: 'src/ts/process/request/request\.ts|src/ts/model/types\.ts|src/ts/model/modellist\.ts|src-tauri/capabilities/migrated\.json|src-tauri/tauri\.conf\.json|src/lang/zh-Hant\.ts'
+  SENSITIVE_FILES: 'src/ts/process/request/request\.ts|src/ts/model/types\.ts|src/ts/model/modellist\.ts|src-tauri/capabilities/migrated\.json|src-tauri/tauri\.conf\.json|src/lang/zh-Hant\.ts|capacitor\.config\.ts'
 
 jobs:
   sync:
