@@ -1,0 +1,272 @@
+name: upstream-sync
+
+# Semi-automated tiered sync from kwaroran/RisuAI (upstream).
+#
+# Tier 1 — auto-merge to main (silent):
+#   Merge is clean, AND the incoming upstream diff does NOT touch any file
+#   in SENSITIVE_FILES below, AND svelte-check (`pnpm check`) passes.
+#   Most upstream commits land here — ~87% per a 30-commit sample on
+#   2026-04-24, so main advances without human involvement.
+#
+# Tier 2 — open PR for human review:
+#   Merge is clean BUT the upstream diff touches a sensitive file, OR
+#   typecheck failed. A clean git merge doesn't guarantee semantic safety
+#   when the upstream change is in code we also modified — human eyes
+#   needed before main moves.
+#
+# Tier 3 — open issue for manual resolve:
+#   git merge raised a real conflict. Resolve locally per CLAUDE.md.
+#
+# De-dupe: if any PR or issue with the `upstream-sync` label is already
+# open, the workflow exits early. Unresolved items never pile up day by
+# day; the next run picks up once the human closes the blocker.
+#
+# Rationale: see CLAUDE.md → "Decision log" → ADR-002.
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # daily at 00:00 UTC
+  workflow_dispatch: {}
+
+env:
+  # Files whose upstream changes we consider risky enough to require a
+  # human look, even if git merge succeeded. Keep in sync with CLAUDE.md
+  # → "Fork map" → "Modified upstream files". Pipe-separated, used as a
+  # single grep -E pattern.
+  SENSITIVE_FILES: 'src/ts/process/request/request\.ts|src/ts/model/types\.ts|src/ts/model/modellist\.ts|src-tauri/capabilities/migrated\.json|src-tauri/tauri\.conf\.json|src/lang/zh-Hant\.ts'
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Ensure `upstream-sync` label exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create upstream-sync \
+            --description "Automated upstream sync from kwaroran/RisuAI" \
+            --color "0E8A16" 2>/dev/null || true
+
+      - name: Skip if an open sync PR or issue already exists
+        id: dedupe
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ISSUE_COUNT=$(gh issue list --state open --label upstream-sync --json number --jq 'length')
+          PR_COUNT=$(gh pr list --state open --label upstream-sync --json number --jq 'length')
+          if [ "$ISSUE_COUNT" -gt 0 ] || [ "$PR_COUNT" -gt 0 ]; then
+            echo "Open sync item exists (issues=$ISSUE_COUNT, prs=$PR_COUNT). Skipping."
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Fetch upstream
+        if: steps.dedupe.outputs.skip == 'false'
+        run: |
+          git remote add upstream https://github.com/kwaroran/RisuAI.git
+          git fetch upstream main
+
+      - name: Check for new upstream commits
+        if: steps.dedupe.outputs.skip == 'false'
+        id: check
+        run: |
+          NEW=$(git log HEAD..upstream/main --oneline | wc -l)
+          echo "new_commits=$NEW" >> $GITHUB_OUTPUT
+          if [ "$NEW" -eq 0 ]; then
+            echo "No new upstream commits."
+          else
+            echo "Found $NEW new upstream commits."
+            git log HEAD..upstream/main --oneline | head -20
+          fi
+
+      - name: Attempt merge on sync branch
+        if: steps.dedupe.outputs.skip == 'false' && steps.check.outputs.new_commits != '0'
+        id: merge
+        run: |
+          BRANCH="sync/upstream-$(date -u +%Y%m%d-%H%M)"
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+          git checkout -b "$BRANCH"
+          if git merge upstream/main --no-edit; then
+            echo "status=clean" >> $GITHUB_OUTPUT
+          else
+            echo "status=conflict" >> $GITHUB_OUTPUT
+            # Capture conflicts BEFORE aborting — --diff-filter=U needs
+            # the merge state to still be in progress.
+            git diff --name-only --diff-filter=U > /tmp/conflicts.txt
+            git merge --abort || true
+          fi
+
+      # ---- Clean-merge path ----
+
+      - name: Classify sensitivity of upstream diff
+        if: steps.merge.outputs.status == 'clean'
+        id: sensitivity
+        run: |
+          # Files introduced by upstream in this sync (from origin/main's
+          # perspective to the post-merge HEAD).
+          CHANGED=$(git diff --name-only "origin/main...HEAD")
+          echo "Changed files in this sync:"
+          echo "$CHANGED"
+          if echo "$CHANGED" | grep -qE "^($SENSITIVE_FILES)\$"; then
+            echo "status=sensitive" >> $GITHUB_OUTPUT
+            {
+              echo "Sensitive files touched:"
+              echo "$CHANGED" | grep -E "^($SENSITIVE_FILES)\$"
+            }
+          else
+            echo "status=safe" >> $GITHUB_OUTPUT
+            echo "No sensitive files touched — eligible for auto-merge."
+          fi
+
+      - name: Set up Node (for type-check)
+        if: steps.merge.outputs.status == 'clean'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install pnpm
+        if: steps.merge.outputs.status == 'clean'
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Install deps + type-check
+        if: steps.merge.outputs.status == 'clean'
+        id: typecheck
+        continue-on-error: true
+        run: |
+          pnpm install --no-frozen-lockfile
+          pnpm check
+
+      # ---- Tier 1: auto-merge to main ----
+      - name: Auto-merge to main (safe + typecheck passed)
+        if: >
+          steps.merge.outputs.status == 'clean' &&
+          steps.sensitivity.outputs.status == 'safe' &&
+          steps.typecheck.outcome == 'success'
+        run: |
+          echo "Auto-merging ${{ steps.check.outputs.new_commits }} upstream commit(s) to main."
+          # Push the merged state directly to main — fast-forward from
+          # origin/main since the sync branch was created off it.
+          git push origin "HEAD:main"
+
+      # ---- Tier 2: open PR for human review ----
+      - name: Push sync branch (review-required path)
+        if: >
+          steps.merge.outputs.status == 'clean' &&
+          (steps.sensitivity.outputs.status == 'sensitive' ||
+           steps.typecheck.outcome != 'success')
+        run: git push origin "${{ steps.merge.outputs.branch }}"
+
+      - name: Open sync PR (review-required path)
+        if: >
+          steps.merge.outputs.status == 'clean' &&
+          (steps.sensitivity.outputs.status == 'sensitive' ||
+           steps.typecheck.outcome != 'success')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_BRANCH: ${{ steps.merge.outputs.branch }}
+          NEW_COMMITS: ${{ steps.check.outputs.new_commits }}
+          SENSITIVITY: ${{ steps.sensitivity.outputs.status }}
+          TYPECHECK: ${{ steps.typecheck.outcome }}
+        run: |
+          COMMIT_LIST=$(git log main..HEAD --oneline | head -20)
+          REASON=""
+          if [ "$SENSITIVITY" = "sensitive" ]; then
+            REASON="$REASON- Upstream touched files we also modified (see sensitivity step in the workflow log).\n"
+          fi
+          if [ "$TYPECHECK" != "success" ]; then
+            REASON="$REASON- \`pnpm check\` failed or errored.\n"
+          fi
+          BODY=$(cat <<EOF
+          ## Automated upstream sync — review required
+
+          Merged \`kwaroran/RisuAI@main\` into this fork cleanly, but auto-merge was blocked because:
+
+          $(echo -e "$REASON")
+
+          - **New upstream commits:** $NEW_COMMITS
+          - **Sensitivity:** $SENSITIVITY
+          - **Type-check (\`pnpm check\`):** $TYPECHECK
+
+          ### Upstream commits included
+          \`\`\`
+          $COMMIT_LIST
+          \`\`\`
+
+          ### Before merging
+          - [ ] Inspect the diff for semantic conflicts in sensitive files, not just syntactic ones
+          - [ ] If you plan to cut a release from this: run the re-test checklist in [CLAUDE.md](../blob/main/CLAUDE.md#re-test-checklist)
+          - [ ] Spot-check \`claude --help\` / \`gemini --help\` against CLAUDE.md's "External CLI dependencies" table if relevant
+          - [ ] If the type-check failed, investigate before merging
+
+          If anything looks off, close this PR and merge manually.
+          EOF
+          )
+          gh pr create \
+            --base main \
+            --head "$PR_BRANCH" \
+            --title "chore: sync with upstream RisuAI (review required)" \
+            --body "$BODY" \
+            --label upstream-sync
+
+      # ---- Tier 3: conflict → open issue ----
+      - name: Open conflict issue
+        if: steps.merge.outputs.status == 'conflict'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEW_COMMITS: ${{ steps.check.outputs.new_commits }}
+        run: |
+          CONFLICTS=$(cat /tmp/conflicts.txt)
+          COMMITS=$(git log HEAD..upstream/main --oneline | head -20)
+          DATE=$(date -u +%Y-%m-%d)
+          BODY=$(cat <<EOF
+          ## Upstream sync failed — merge conflict
+
+          Automated daily sync hit a merge conflict. Manual resolution needed.
+
+          **New upstream commits ($NEW_COMMITS total):**
+          \`\`\`
+          $COMMITS
+          \`\`\`
+
+          **Conflicting files:**
+          \`\`\`
+          $CONFLICTS
+          \`\`\`
+
+          ### Resolve locally
+          \`\`\`bash
+          git fetch upstream
+          git checkout main
+          git merge upstream/main
+          # resolve conflicts, re-test per CLAUDE.md checklist, then:
+          git commit
+          git push origin main
+          \`\`\`
+
+          See [CLAUDE.md → Upstream merge policy](../blob/main/CLAUDE.md#upstream-merge-policy) for per-file guidance.
+
+          Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          _This issue blocks future automated sync runs. Close it once the merge lands on \`main\`._
+          EOF
+          )
+          gh issue create \
+            --title "Upstream sync conflict ($DATE)" \
+            --body "$BODY" \
+            --label upstream-sync

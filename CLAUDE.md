@@ -150,6 +150,137 @@ Providers we investigated and decided not to add, so future-us doesn't repeat th
 
 ---
 
+## Decision log (ADRs)
+
+Project-level decisions whose reasoning would be expensive to reconstruct from code alone. These explain the *shape of the project* (why fork, how to sync, which maintenance discipline we chose). Code-level "we tried X, X doesn't work because Y, so we do Z" entries live in the **Constraints & Rejected Alternatives** section above; provider-level "we don't add CLI Z" entries live in **Rejected integrations**.
+
+When adding a new ADR, date-stamp it, describe the *alternatives actually considered*, and include a **Re-check if** list so future-you knows when the decision should be revisited.
+
+---
+
+### ADR-001 — Maintain as a hard fork of upstream RisuAI
+**Date:** 2026-04-24 · **Status:** Accepted
+
+**Context.** RisuGem adds Claude Code CLI and Gemini CLI as RisuAI LLM providers. Implementing these requires (a) two new source files in `src/ts/process/request/`, (b) small additive edits in 6 upstream files (fork map above), and (c) Tauri `shell` capabilities for subprocess spawning. Upstream RisuAI is actively developed (on the order of several commits per week). The distribution model is a desktop binary built by our own release pipeline.
+
+**Decision.** Maintain RisuGem as a long-lived hard fork of `kwaroran/RisuAI`, periodically synced from `upstream/main`. Accept a small, well-bounded merge-conflict surface as the cost.
+
+**Consequences.**
+- Full control over UX (native provider entries in the model picker, Windows `.cmd` detection, error messages).
+- Must periodically merge from upstream (largely automated — see ADR-002).
+- Fork-specific knowledge must be captured out-of-band (this file) because it's invisible from code alone.
+- CI/release infrastructure duplicates upstream's.
+
+**Alternatives considered.**
+- **Patch set (git format-patch / quilt).** The conflict-resolution work is identical — same lines still clash whether the mechanism is `git merge` or `git am --3way`. Adds tooling overhead with zero real saving. Worse UX for users (no pre-built binaries unless we still run a release pipeline).
+- **Submit CLI bridges upstream as a PR.** RisuAI upstream is unlikely to accept provider code that uses a ChatGPT/Claude subscription the way our bridges do (ToS grey zone), and the Windows `.cmd`/platform-branch code adds complexity upstream may not want. A narrower PR exposing just a "custom provider extension point" might be tractable later, but that's a long-tail improvement rather than a replacement for the fork.
+- **Ship as a RisuAI plugin.** Blocked by Tauri's capability model: spawning `claude` / `gemini` as subprocesses requires shell permissions declared in `src-tauri/capabilities/migrated.json`, which cannot be added at runtime by a plugin. Plugin-only integration is impossible without first convincing upstream to ship broad shell capability (which they shouldn't).
+- **Sidecar HTTP server + stock RisuAI.** A separate local server exposing OpenAI-compatible endpoints that internally spawn the CLIs. Zero RisuAI modifications, zero merge burden. Rejected for UX: users would need to install and run a second process, configure a localhost endpoint, and the model picker would show a generic "Custom OpenAI" entry instead of native "Claude Code" / "Gemini CLI" labels. Worth building *in addition to* the fork only if a non-RisuAI-client use case emerges.
+
+**Re-check if.**
+- Upstream RisuAI adds a provider extension point that exposes the `LLMFormat` switch as a plugin hook *and* allows plugins to request additional shell capabilities. Both are needed; either alone isn't enough.
+- A non-RisuAI client use case arises for the CLI bridges (then the sidecar becomes a parallel option, not a replacement).
+
+---
+
+### ADR-002 — Semi-automated upstream sync via tiered GitHub Actions workflow
+**Date:** 2026-04-24 · **Status:** Accepted
+**Implementation:** `.github/workflows/upstream-sync.yml`
+
+**Context.** Given ADR-001, we need a low-friction way to track upstream. Upstream pushes multiple commits per week. Manual sync without automation risks drift (work accumulates, conflicts compound). Fully-manual review of every merge risks alert fatigue — after the 3rd routine PR in a week, review becomes ceremonial.
+
+A 30-commit sample of upstream history (measured 2026-04-24) showed 26/30 (87%) of commits don't touch any file in our "Modified upstream files" list. Those commits are genuinely mechanical from our perspective: git merge is either already clean or trivially so.
+
+**Decision.** Tiered workflow that scales review effort to actual risk:
+
+| Condition on cleanly-merged upstream diff | Action |
+|---|---|
+| Doesn't touch any sensitive file AND `pnpm check` passes | **Auto-merge to `main`**, no PR |
+| Touches a sensitive file OR `pnpm check` fails | Open **PR labeled `upstream-sync`** for human review |
+| `git merge` raised a real conflict | Open **issue labeled `upstream-sync`** for manual resolve |
+
+Sensitive file list = the 6 files in "Modified upstream files" (Fork map above), encoded as `env.SENSITIVE_FILES` in the workflow. A `dedupe` step ensures no new PR/issue is created while an existing one with the same label is open, so unresolved items don't pile up across daily runs.
+
+The re-test checklist (Claude Code + Gemini CLI smoke tests) is run by a human *once per release*, not per merge — main is allowed to advance silently between releases.
+
+**Consequences.**
+- ~87% of upstream commits (estimated) merge silently; roughly 1–2 PRs per week for human review.
+- Release cuts (from `main` to `production`) remain the human-verified gate. A bad auto-merge can reach `main` but not end users until the human reviews the release candidate.
+- `CLAUDE.md` "Last verified" marker must be bumped by humans — it isn't reliable evidence that auto-merged states were manually reviewed.
+- Version-bump commits (`chore: update version to X.Y.Z`) touch `tauri.conf.json` and therefore **always** go to the PR path, even though they're semantically trivial for us. Acceptable cost.
+
+**Alternatives considered.**
+- **Every-merge PR (no tier).** Rejected. Daily review creates alert fatigue; within 1–2 weeks, reviews become "click merge on anything called 'sync'". Worse than the tiered design because the rare sensitive case gets the same attention as routine ones.
+- **Full auto-merge regardless of files changed.** Rejected. A clean `git merge` doesn't guarantee semantic safety. If upstream changes the signature of `OpenAIChat` or the streaming contract in `request.ts`, the type-check may pass but our bridges break at runtime. Sensitive-file detection is a cheap proxy for "might this break our code in a way the compiler won't see".
+- **Manual sync only.** Rejected. Work accumulates; compounded conflicts are worse than incremental ones; and a fork that's one month behind upstream is harder to contribute fixes back to.
+- **Automation via a scheduled shell script + local cron.** Rejected. Requires a machine to always be on and authenticated, state lives on one laptop, visibility is zero. GitHub Actions is the obvious right tool for a repo-scoped scheduled job.
+
+**Re-check if.**
+- The sensitive file list grows significantly (update `SENSITIVE_FILES` in the workflow + the Fork map + this ADR together — they must stay in sync).
+- Upstream starts batching commits into fewer, larger releases — the per-day cadence assumption weakens.
+- RisuAI gains a plugin architecture that lets us un-fork (ADR-001 re-check triggers this one too).
+- Review volume exceeds ~3 PRs/week in practice — revisit whether version-bump commits should be auto-merged despite touching `tauri.conf.json`.
+
+---
+
+### ADR-003 — Expose Gemini CLI via moving model aliases (Auto/Pro/Flash), not pinned IDs
+**Date:** 2026-04-24 · **Status:** Accepted
+**Implementation:** `src/ts/model/modellist.ts` → three `gemini-cli*` entries with `internalID` set to `'auto'`, `'pro'`, or `'flash'`; passed to the CLI via `-m <alias>` in `geminiCli.ts`.
+
+**Context.** Gemini CLI accepts both pinned model IDs (e.g. `gemini-2.5-pro`) and moving aliases (`auto`, `pro`, `flash`) for its `-m` flag. Moving aliases resolve to the current generation inside the CLI. RisuGem needs to decide how to surface model choice in its UI.
+
+**Decision.** Ship three model entries backed by moving aliases:
+- `gemini-cli` → `auto` (default, CLI picks based on prompt)
+- `gemini-cli-pro` → `pro` (biggest model)
+- `gemini-cli-flash` → `flash` (fast model)
+
+No pinned version IDs in `modellist.ts`. When Google releases a new Gemini generation, the CLI's alias table updates and our users get it automatically without a RisuGem release.
+
+**Consequences.**
+- Zero modellist maintenance when new Gemini generations ship.
+- Users can't pick a specific older version from our UI (they'd need to edit `internalID` manually or we'd add pinned entries later).
+- Response metadata (`stats.models.<resolved-name>`) is the only way to see which exact model the CLI used.
+
+**Alternatives considered.**
+- **Pinned model IDs** (e.g. `gemini-2.5-pro`, `gemini-2.5-flash`). Gives users precise control, but every new Gemini release requires a `modellist.ts` patch + RisuGem release. For a small fork, that recurring cost isn't worth the benefit.
+- **Single entry with a text input for model ID.** More flexible but worse default UX; most users want "just pick a good one", not to memorize model IDs.
+
+**Re-check if.**
+- Google deprecates or renames the `auto`/`pro`/`flash` aliases (then we'd need pinned IDs or a new alias set).
+- Users start asking for specific-version pinning (add pinned entries *alongside* the moving aliases, don't replace).
+- The moving-alias contract proves unstable (e.g. `pro` resolves inconsistently within the same CLI version across different users).
+
+Parallel note: Codex CLI only exposes pinned IDs (`gpt-5.4`, `gpt-5.4-mini`, etc.). This was one factor in the Codex rejection (see "Rejected integrations" above).
+
+---
+
+### ADR-004 — Maintain fork documentation manually via `CLAUDE.md` + `Last verified` marker, not automation scripts
+**Date:** 2026-04-24 · **Status:** Accepted
+
+**Context.** Earlier in development I tried a `scripts/check-fork-doc.sh` that grepped `CLAUDE.md` claims against actual state (e.g. `claude --help | grep system-prompt`). It produced false positives (the `--system-prompt-file` flag exists but is hidden from `--help` body), required shell tooling that doesn't always match contributors' environments, and was "advisory only" — it could warn but not actually prevent staleness.
+
+**Decision.** No automated documentation checks. Keep `CLAUDE.md` accurate through:
+1. A `Last verified against: <commit> (<date>)` marker at the top. Readers know when the claims were last manually checked.
+2. An explicit "re-verify" step in the **Upstream merge policy**: after each merge, spot-check the "External CLI dependencies" tables against the currently-installed CLI binaries and bump the marker.
+3. Symbol-based references (e.g. "`claudeCode.ts` → `cliArgs` in `requestClaudeCode`") instead of line numbers, so minor edits don't invalidate the doc.
+4. Categorization of the diff into **pure additions** (never touched by upstream) vs **modified files** (may conflict) in the Fork map, so readers know where attention is needed.
+
+**Consequences.**
+- Documentation drift is possible if the merge checklist is skipped.
+- `Last verified` marker is the canary: if it's months out of date, treat the content skeptically.
+- No false positives from a fragile script. Humans can recognize "oh upstream added a new flag" in a way grep cannot.
+
+**Alternatives considered.**
+- **`check-fork-doc.sh` (attempted and removed).** See Context.
+- **Doctests / literate-programming-style executable assertions in `CLAUDE.md`.** Overengineering for a small fork. Most of the claims in this file can't be expressed as deterministic assertions anyway (e.g. "Gemini's hardcoded coding-agent identity wins ≥50% without the override header" — empirical, not a pass/fail check).
+- **Separate `FORK.md` limited to what-changed, leaving the reasoning in commits.** Tried implicitly earlier; rejected because reasoning-in-commits means future-us has to replay every commit message to reconstruct design intent. A narrative doc is strictly more useful.
+
+**Re-check if.**
+- `CLAUDE.md` grows past ~1000 lines — consider splitting into `CLAUDE.md` (overview) + `docs/adr/*.md` (one file per ADR).
+- A contributor other than the maintainer joins — then drift risk goes up and automation might pay off.
+
+---
+
 ## When something breaks after a CLI tool update
 
 1. Add a temporary `console.log('[ClaudeCode raw]', trimmed)` (or `[GeminiCLI raw]`) inside the stdout handler in the respective bridge file. Note: use `console.log`, not `console.debug` — browser DevTools filter `debug` by default.
