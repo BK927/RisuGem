@@ -57,6 +57,16 @@ RisuGem does **not** bundle either CLI. If the binary isn't on PATH, the provide
 
 **Windows note:** Gemini CLI's npm install provides `gemini.cmd` (a batch wrapper), not a `.exe`. RisuGem detects this automatically. No manual configuration needed.
 
+#### Tested CLI versions
+
+| Component | Tested version |
+|---|---|
+| Claude Code CLI | 2.1.119 |
+| Gemini CLI | 0.39.0 |
+| RisuAI upstream | `ad34f0e4` (post-v2026.4.181) |
+
+Newer versions will likely work. If something breaks after an update, check the [re-test checklist in CLAUDE.md](CLAUDE.md).
+
 ---
 
 ## Using the CLI providers
