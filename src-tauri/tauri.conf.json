@@ -18,7 +18,7 @@
       "src-python/*"
     ],
     "targets": ["deb", "rpm", "appimage", "nsis", "app", "dmg"],
-    "createUpdaterArtifacts": false,
+    "createUpdaterArtifacts": true,
     "fileAssociations": [
       {
         "ext": [
@@ -29,7 +29,7 @@
   },
   "productName": "RisuAI",
   "mainBinaryName": "RisuAI",
-  "version": "2026.2.291",
+  "version": "2026.4.240",
   "identifier": "co.aiclient.risu",
   "plugins": {
     "updater": {
