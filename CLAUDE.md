@@ -54,7 +54,7 @@ These are what our bridges assume about the external tools. If the tool upstream
 | No `--system-prompt` flag exists; `GEMINI.md` in cwd is the only workspace-context injection point | `geminiCli.ts` → `overrideHeader` / `writeFile('GEMINI.md', ...)` | `gemini --help` |
 | Output format `stream-json` emits `type: "message"` events with `role: "assistant"` and `delta: true` for incremental text | `geminiCli.ts` → `cmd.stdout.on('data', ...)` | Inspect raw JSONL with a temporary `console.log` |
 | `-e none --approval-mode plan` disables all tool/edit capabilities (we're chat-only) | `geminiCli.ts` → `cliArgs` | `gemini --help` |
-| Model aliases `auto`, `pro`, `flash` are moving (resolve to current generation inside the CLI); the fork relies on that auto-routing so we don't have to pin model IDs in `modellist.ts` | `geminiCli.ts` → `modelAlias` / `modellist.ts` → `gemini-cli*` entries | `gemini -m flash -p hi -o json` — response JSON should include `stats.models.<resolved-model-name>` |
+| Model aliases `auto`, `pro`, `flash` are moving (resolve to current generation inside the CLI); the fork relies on that auto-routing so we don't have to pin model IDs in `modellist.ts`. **If Google deprecates or renames these aliases, replace the entries in `modellist.ts` with pinned model IDs.** | `geminiCli.ts` → `modelAlias` / `modellist.ts` → `gemini-cli*` entries | `gemini -m flash -p hi -o json` — response JSON should include `stats.models.<resolved-model-name>` |
 | Windows: npm-global install provides `gemini.cmd`, not `gemini.exe` | `geminiCli.ts` → platform check `'gemini.cmd' : 'gemini'` | `where.exe gemini` — should list only `.cmd` |
 
 ---
@@ -152,9 +152,9 @@ Providers we investigated and decided not to add, so future-us doesn't repeat th
 
 ## Decision log (ADRs)
 
-Project-level decisions whose reasoning would be expensive to reconstruct from code alone. These explain the *shape of the project* (why fork, how to sync, which maintenance discipline we chose). Code-level "we tried X, X doesn't work because Y, so we do Z" entries live in the **Constraints & Rejected Alternatives** section above; provider-level "we don't add CLI Z" entries live in **Rejected integrations**.
+Project-level decisions whose reasoning would be expensive to reconstruct from code alone. These explain the *shape of the project* (why fork, how to sync). Code-level "we tried X, X doesn't work because Y, so we do Z" entries live in the **Constraints & Rejected Alternatives** section above; provider-level "we don't add CLI Z" entries live in **Rejected integrations**.
 
-When adding a new ADR, date-stamp it, describe the *alternatives actually considered*, and include a **Re-check if** list so future-you knows when the decision should be revisited.
+When adding a new ADR, date-stamp it, describe the *alternatives actually considered*, and include a **Re-check if** list so future-you knows when the decision should be revisited. Don't write ADRs for non-decisions (default states, obvious choices) — if the re-discovery cost is under an hour, a code comment is enough.
 
 ---
 
@@ -220,37 +220,6 @@ The re-test checklist (Claude Code + Gemini CLI smoke tests) is run by a human *
 - Upstream starts batching commits into fewer, larger releases — the per-day cadence assumption weakens.
 - RisuAI gains a plugin architecture that lets us un-fork (ADR-001 re-check triggers this one too).
 - Review volume exceeds ~3 PRs/week in practice — revisit whether version-bump commits should be auto-merged despite touching `tauri.conf.json`.
-
----
-
-### ADR-003 — Expose Gemini CLI via moving model aliases (Auto/Pro/Flash), not pinned IDs
-**Date:** 2026-04-24 · **Status:** Accepted
-**Implementation:** `src/ts/model/modellist.ts` → three `gemini-cli*` entries with `internalID` set to `'auto'`, `'pro'`, or `'flash'`; passed to the CLI via `-m <alias>` in `geminiCli.ts`.
-
-**Context.** Gemini CLI accepts both pinned model IDs (e.g. `gemini-2.5-pro`) and moving aliases (`auto`, `pro`, `flash`) for its `-m` flag. Moving aliases resolve to the current generation inside the CLI. RisuGem needs to decide how to surface model choice in its UI.
-
-**Decision.** Ship three model entries backed by moving aliases:
-- `gemini-cli` → `auto` (default, CLI picks based on prompt)
-- `gemini-cli-pro` → `pro` (biggest model)
-- `gemini-cli-flash` → `flash` (fast model)
-
-No pinned version IDs in `modellist.ts`. When Google releases a new Gemini generation, the CLI's alias table updates and our users get it automatically without a RisuGem release.
-
-**Consequences.**
-- Zero modellist maintenance when new Gemini generations ship.
-- Users can't pick a specific older version from our UI (they'd need to edit `internalID` manually or we'd add pinned entries later).
-- Response metadata (`stats.models.<resolved-name>`) is the only way to see which exact model the CLI used.
-
-**Alternatives considered.**
-- **Pinned model IDs** (e.g. `gemini-2.5-pro`, `gemini-2.5-flash`). Gives users precise control, but every new Gemini release requires a `modellist.ts` patch + RisuGem release. For a small fork, that recurring cost isn't worth the benefit.
-- **Single entry with a text input for model ID.** More flexible but worse default UX; most users want "just pick a good one", not to memorize model IDs.
-
-**Re-check if.**
-- Google deprecates or renames the `auto`/`pro`/`flash` aliases (then we'd need pinned IDs or a new alias set).
-- Users start asking for specific-version pinning (add pinned entries *alongside* the moving aliases, don't replace).
-- The moving-alias contract proves unstable (e.g. `pro` resolves inconsistently within the same CLI version across different users).
-
-Parallel note: Codex CLI only exposes pinned IDs (`gpt-5.4`, `gpt-5.4-mini`, etc.). This was one factor in the Codex rejection (see "Rejected integrations" above).
 
 ---
 
