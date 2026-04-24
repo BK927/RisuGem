@@ -254,33 +254,6 @@ Parallel note: Codex CLI only exposes pinned IDs (`gpt-5.4`, `gpt-5.4-mini`, etc
 
 ---
 
-### ADR-004 — Maintain fork documentation manually via `CLAUDE.md` + `Last verified` marker, not automation scripts
-**Date:** 2026-04-24 · **Status:** Accepted
-
-**Context.** Earlier in development I tried a `scripts/check-fork-doc.sh` that grepped `CLAUDE.md` claims against actual state (e.g. `claude --help | grep system-prompt`). It produced false positives (the `--system-prompt-file` flag exists but is hidden from `--help` body), required shell tooling that doesn't always match contributors' environments, and was "advisory only" — it could warn but not actually prevent staleness.
-
-**Decision.** No automated documentation checks. Keep `CLAUDE.md` accurate through:
-1. A `Last verified against: <commit> (<date>)` marker at the top. Readers know when the claims were last manually checked.
-2. An explicit "re-verify" step in the **Upstream merge policy**: after each merge, spot-check the "External CLI dependencies" tables against the currently-installed CLI binaries and bump the marker.
-3. Symbol-based references (e.g. "`claudeCode.ts` → `cliArgs` in `requestClaudeCode`") instead of line numbers, so minor edits don't invalidate the doc.
-4. Categorization of the diff into **pure additions** (never touched by upstream) vs **modified files** (may conflict) in the Fork map, so readers know where attention is needed.
-
-**Consequences.**
-- Documentation drift is possible if the merge checklist is skipped.
-- `Last verified` marker is the canary: if it's months out of date, treat the content skeptically.
-- No false positives from a fragile script. Humans can recognize "oh upstream added a new flag" in a way grep cannot.
-
-**Alternatives considered.**
-- **`check-fork-doc.sh` (attempted and removed).** See Context.
-- **Doctests / literate-programming-style executable assertions in `CLAUDE.md`.** Overengineering for a small fork. Most of the claims in this file can't be expressed as deterministic assertions anyway (e.g. "Gemini's hardcoded coding-agent identity wins ≥50% without the override header" — empirical, not a pass/fail check).
-- **Separate `FORK.md` limited to what-changed, leaving the reasoning in commits.** Tried implicitly earlier; rejected because reasoning-in-commits means future-us has to replay every commit message to reconstruct design intent. A narrative doc is strictly more useful.
-
-**Re-check if.**
-- `CLAUDE.md` grows past ~1000 lines — consider splitting into `CLAUDE.md` (overview) + `docs/adr/*.md` (one file per ADR).
-- A contributor other than the maintainer joins — then drift risk goes up and automation might pay off.
-
----
-
 ## When something breaks after a CLI tool update
 
 1. Add a temporary `console.log('[ClaudeCode raw]', trimmed)` (or `[GeminiCLI raw]`) inside the stdout handler in the respective bridge file. Note: use `console.log`, not `console.debug` — browser DevTools filter `debug` by default.
