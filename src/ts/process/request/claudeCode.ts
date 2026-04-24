@@ -118,6 +118,14 @@ export async function requestClaudeCode(arg: RequestDataArgumentExtended): Promi
                         controller.error(new Error(`Claude Code exited with code ${data.code}${stderrBuf ? `: ${stderrBuf.trim()}` : ''}`))
                         return
                     }
+                    // Parallels geminiCli.ts: Claude Code can also exit 0 after
+                    // an internal failure (e.g. auth expiry, network drop) without
+                    // emitting a final assistant snapshot. Reporting that as a
+                    // stream error lets RisuAI's fallback-model path engage.
+                    if (lastAccumulated === '') {
+                        controller.error(new Error(`Claude Code produced no output${stderrBuf ? `: ${stderrBuf.trim().slice(-500)}` : ''}`))
+                        return
+                    }
                     controller.close()
                 })
 

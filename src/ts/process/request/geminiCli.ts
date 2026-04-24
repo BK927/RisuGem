@@ -108,6 +108,20 @@ export async function requestGeminiCLI(arg: RequestDataArgumentExtended): Promis
                         controller.error(new Error(`Gemini CLI exited with code ${data.code}${stderrBuf ? `: ${stderrBuf.trim()}` : ''}`))
                         return
                     }
+                    // Gemini CLI sometimes exhausts its internal retry budget on
+                    // transient upstream errors (e.g. 429 MODEL_CAPACITY_EXHAUSTED
+                    // for gemini-*-pro-preview under load) and then exits 0 after
+                    // printing the error to stderr, without ever emitting an
+                    // assistant message on stdout. Without this branch we'd report
+                    // `type: 'success'` with empty text, which suppresses RisuAI's
+                    // fallback-model path in request.ts. Surfacing it as a stream
+                    // error makes the non-streaming drain below return `fail` and
+                    // the streaming caller see an error, both of which let the
+                    // fallback model take over.
+                    if (accumulated === '') {
+                        controller.error(new Error(`Gemini CLI produced no output${stderrBuf ? `: ${stderrBuf.trim().slice(-500)}` : ''}`))
+                        return
+                    }
                     controller.close()
                 })
 
