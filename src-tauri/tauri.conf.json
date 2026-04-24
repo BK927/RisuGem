@@ -33,7 +33,7 @@
   "identifier": "com.bk927.risugem",
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI3ODlGRUVEM0I4MDc1RkQKUldUOWRZQTc3ZjZKSjFxaVVHKyswc2VRbWFoMnVEekdzaVQ1dnJId3VmdnQvck9UVmdmdm12bm8K",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRGRjU2RjQ3ODBGMUZDRUUKUldUdS9QR0FSMi8xVDZ5QzFmWE9seWp5TW5Zb1Mvc1BUSTNQN2JjamZXcTVlaURIMjFJYjI4NVkK",
       "endpoints": [
         "https://github.com/BK927/RisuGem/releases/latest/download/latest.json"
       ],
